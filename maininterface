@@ -1,3 +1,142 @@
+// Correctly working Code.gs
+// Google Apps Script code for the invigilation duty web app
+function doGet() {
+  const userEmail = Session.getActiveUser().getEmail();
+  Logger.log("User Email: " + userEmail);
+
+  if (!userEmail) {
+    return HtmlService.createHtmlOutputFromFile('login');
+  }
+
+  const userName = PropertiesService.getUserProperties().getProperty('userName');
+
+  if (!userName) {
+    return HtmlService.createHtmlOutputFromFile('firstTimeLogin');
+  }
+
+  return HtmlService.createHtmlOutputFromFile('mainInterface');
+}
+
+function getInvigilators() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const importSheet = ss.getSheetByName("ImportInvig");
+  const lastRow = importSheet.getLastRow();
+  
+  if (lastRow < 2) return [];
+
+  const invigilators = importSheet.getRange(`A2:A${lastRow}`).getValues()
+    .flat()
+    .filter(name => name.trim() !== "");
+
+  Logger.log("Fetched Invigilators: " + JSON.stringify(invigilators));
+  return invigilators;
+}
+
+function saveUser(userName) {
+  PropertiesService.getUserProperties().setProperty('userName', userName);
+}
+
+function getLoggedInUser() {
+  return PropertiesService.getUserProperties().getProperty('userName');
+}
+
+function getAvailableSlots() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ledgerSheet = ss.getSheetByName("Ledger");
+  const lastRow = ledgerSheet.getLastRow();
+
+  const data = ledgerSheet.getRange(2, 1, lastRow - 1, 3).getValues(); // Fetching Date, Session, Invigilator
+  let sessionTracker = {};
+  let availableSlots = [];
+
+  data.forEach(row => {
+    if (row[0] && row[1] && !row[2]) { // Ensure valid date/session values
+      const date = new Date(row[0]).toLocaleDateString('en-GB');
+      const session = row[1];
+      const key = `${date} - ${session}`;
+      if (!sessionTracker[key]) {
+        sessionTracker[key] = { count: 0, date: date, session: session };
+      }
+      sessionTracker[key].count++;
+    }
+  });
+
+  Object.values(sessionTracker).forEach(slot => {
+    availableSlots.push({
+      date: slot.date,
+      session: slot.session,
+      count: slot.count
+    });
+  });
+
+  Logger.log("Available Slots: " + JSON.stringify(availableSlots));
+  return availableSlots;
+}
+
+function submitChoices(selectedSlots) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ledgerSheet = ss.getSheetByName("Ledger");
+  const user = PropertiesService.getUserProperties().getProperty('userName');
+
+  let success = true;
+  let failedSelections = [];
+  let selectedSessions = {};
+  let alreadyOpted = false;
+
+  selectedSlots.forEach(({ date, session }) => {
+    if (selectedSessions[session]) {
+      failedSelections.push({ date, session });
+      success = false;
+      return;
+    }
+
+    selectedSessions[session] = true;
+
+    const lastRow = ledgerSheet.getLastRow();
+    const data = ledgerSheet.getRange(2, 1, lastRow - 1, 3).getValues();
+
+    for (let i = 0; i < data.length; i++) {
+      if (new Date(data[i][0]).toLocaleDateString('en-GB') == date && data[i][1] == session) {
+        if (data[i][2] === user) {
+          alreadyOpted = true;
+          break;
+        }
+        if (!data[i][2]) {
+          ledgerSheet.getRange(i + 2, 3).setValue(user);
+          Logger.log(`Assigned ${user} to ${date} - ${session}`);
+          return;
+        }
+      }
+    }
+  });
+
+  return { success, failedSelections, alreadyOpted };
+}
+
+function addInconvenience(startDate, endDate, reason) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const inconvenienceSheet = ss.getSheetByName("Inconvenience");
+  const user = PropertiesService.getUserProperties().getProperty('userName');
+
+  inconvenienceSheet.appendRow([user, startDate, endDate, reason]);
+}
+
+function logoutUser() {
+  PropertiesService.getUserProperties().deleteProperty('userName');
+  Logger.log("User logged out successfully.");
+  return HtmlService.createHtmlOutput('<script>window.location.href = "/";</script>');
+}
+
+function refreshSlotsAutomatically() {
+  return getAvailableSlots();
+}
+
+
+// and mainInterface.html
+
+
+
+
 <!DOCTYPE html>
 <html>
 <head>
