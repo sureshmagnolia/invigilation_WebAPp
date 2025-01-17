@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Invigilation Duty Management</title>
+</head>
+<body>
+    <h1>Invigilation Duty Management</h1>
+    <p id="userDisplay">Logged in as: <span id="loggedInUser"></span></p>
+
+    <h2>Available Slots</h2>
+    <div id="availableSlotsContainer"></div>
+    <button onclick="submitChoices()">Confirm Selection</button>
+
+    <hr>
+
+    <h2>Add Inconvenience Period</h2>
+    <label>Start Date: <input type="date" id="startDate"></label><br>
+    <label>End Date: <input type="date" id="endDate"></label><br>
+    <label>Reason: <textarea id="reason"></textarea></label><br>
+    <button onclick="addInconvenience()">Add</button>
+
+    <button onclick="logout()">Logout</button>
+
+    <script>
+        let loggedInUser = "";
+
+        function loadUserData() {
+            google.script.run.withSuccessHandler(function(user) {
+                loggedInUser = user;
+                document.getElementById('loggedInUser').textContent = user;
+            }).getLoggedInUser();
+        }
+
+        function loadAvailableSlots() {
+            console.log("Fetching available slots...");
+            google.script.run.withSuccessHandler(displaySlots).getAvailableSlots();
+        }
+
+        function displaySlots(slots) {
+            console.log("Received Slots Data: ", slots);
+
+            const container = document.getElementById('availableSlotsContainer');
+            container.innerHTML = ""; // Clear existing content
+
+            if (!slots || slots.length === 0) {
+                container.innerHTML = "<p>No available slots at the moment.</p>";
+                return;
+            }
+
+            slots.forEach(slot => {
+                const div = document.createElement('div');
+                div.innerHTML = `<label>
+                    <input type="checkbox" value="${slot.date}|${slot.session}">
+                    ${slot.date} - ${slot.session} : ${slot.count} slots available
+                </label>`;
+                container.appendChild(div);
+            });
+        }
+
+        function submitChoices() {
+            const checkboxes = document.querySelectorAll('#availableSlotsContainer input:checked');
+            const selectedSlots = Array.from(checkboxes).map(cb => {
+                const [date, session] = cb.value.split('|');
+                return { date, session, user: loggedInUser };
+            });
+
+            if (selectedSlots.length === 0) {
+                alert("Please select at least one slot.");
+                return;
+            }
+
+            google.script.run.withSuccessHandler(response => {
+                if (response.alreadyOpted) {
+                    alert("You have already opted for one of the selected slots.");
+                } else if (response.success) {
+                    alert("Slot assigned successfully!");
+                } else {
+                    alert("Some slots were unavailable: " + JSON.stringify(response.failedSelections));
+                }
+                loadAvailableSlots(); // Reload slots without refreshing the page
+            }).submitChoices(selectedSlots);
+        }
+
+        function addInconvenience() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            const reason = document.getElementById('reason').value;
+
+            if (!startDate || !endDate || !reason) {
+                alert("Please fill all fields.");
+                return;
+            }
+
+            google.script.run.addInconvenience(startDate, endDate, reason);
+            alert("Inconvenience period added.");
+            loadAvailableSlots();
+        }
+
+        function logout() {
+            google.script.run.withSuccessHandler(() => {
+                google.script.run.logoutUser();
+                alert("Logged out successfully!");
+                window.location.href = "/"; // Redirect to login page
+            });
+        }
+
+        function autoRefreshSlots() {
+            console.log("Auto-refreshing available slots...");
+            google.script.run.withSuccessHandler(displaySlots).refreshSlotsAutomatically();
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            loadUserData();
+            loadAvailableSlots();
+            setInterval(autoRefreshSlots, 30000); // Refresh every 30 seconds
+        });
+    </script>
+</body>
+</html>
